@@ -7,24 +7,27 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-const mongodb_env = "MONGODB_URI"
+const mongodbEnv = "MONGODB_URI"
 
 var mongoClient *mongo.Client
 
 type Website struct {
-	Uri         string
+	ID          bson.ObjectID `bson:"_id"`
+	Site        string
 	Description string
 }
 
 func main() {
-	connectToMongo(os.Getenv(mongodb_env))
+	connectToMongo(os.Getenv(mongodbEnv))
 	defer closeMongoDB()
-	ReadContentEntry()
+	results := ReadContentEntry()
+	UpdateContentEntry(results[0])
+	_ = ReadContentEntry()
 }
 
 func CreateContentEntry() {
@@ -35,41 +38,65 @@ func CreateContentEntry() {
 	// Create a new entry in the db
 	db := mongoClient.Database("content_consolidation_db")
 	coll := db.Collection("websites")
-	doc := Website{Uri: "https://google.com", Description: "A useful search engine"}
+	doc := Website{Site: "https://google.com", Description: "A useful search engine"}
 
 	result, insertErr := coll.InsertOne(ctx, doc)
 	if insertErr != nil {
-		log.Fatal("Could not insert record to collection: %v", insertErr)
+		log.Fatal("Could not insert record to collection: ", insertErr)
 	}
 
-	fmt.Println("Inserted document with _id: %v\n", result.InsertedID)
+	fmt.Println("Inserted document with _id: ", result.InsertedID)
 }
 
-func ReadContentEntry() {
+func ReadContentEntry() []Website {
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Set the collection
-	db := mongoClient.Database("content_consolidation_db")
-	coll := db.Collection("websites")
+	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
 
 	// Read from the collection
 	cursor, err := coll.Find(ctx, bson.D{})
 	if err != nil {
-		log.Fatal("Could not read records from MongoDB: %v", err)
+		log.Fatal("Could not read records from MongoDB: ", err)
 	}
 
 	var results []Website
 	if err = cursor.All(ctx, &results); err != nil {
-		log.Fatal("Could not parse results from MongoDB: %v", err)
+		log.Fatal("Could not parse results from MongoDB: ", err)
 	}
 
-	fmt.Println("Found the following records:\n")
+	fmt.Println("Found the following records:")
 	for _, result := range results {
 		res, _ := bson.MarshalExtJSON(result, false, false)
 		fmt.Println(string(res))
 	}
+
+	return results
+}
+
+func UpdateContentEntry(website Website) {
+	// Create context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create a new entry in the db
+	website.Site = "https://reddit.com"
+	website.Description = "A hive of scum and villainy"
+	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
+	filter := bson.M{"_id": website.ID}
+	update := bson.M{"$set": bson.M{
+		"site":        website.Site,
+		"description": website.Description,
+	}}
+
+	result, updateErr := coll.UpdateOne(ctx, filter, update)
+	if updateErr != nil {
+		log.Fatal("Could not update record ", website.ID, ": ", updateErr)
+	}
+
+	fmt.Println("Updated ", result.ModifiedCount, " records.")
 }
 
 func connectToMongo(uri string) {
@@ -77,15 +104,15 @@ func connectToMongo(uri string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, clientOptions)
+	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		fmt.Println(uri)
-		log.Fatal("Failed to connect to MongoDB: %v", err)
+		log.Fatal("Failed to connect to MongoDB: ", err)
 	}
 
 	err = client.Ping(ctx, nil)
 	if err != nil {
-		log.Fatal("Failed to ping MongoDB: %v", err)
+		log.Fatal("Failed to ping MongoDB: ", err)
 	}
 
 	fmt.Println("Connected to MongoDB!")
