@@ -20,26 +20,71 @@ type Website struct {
 	ID          bson.ObjectID `bson:"_id"`
 	Site        string
 	Description string
+	Date        bson.DateTime
 }
 
+// cc add "site" "description"
+// cc list
+// cc update "site" "description" "id"
+// cc delete "id"
 func main() {
-	connectToMongo(os.Getenv(mongodbEnv))
+	// Check if enough arguments were provided
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: cc <command> [arguments]\nCommands:\n  add <site> <description>\n  list\n  update <site> <description> <id>\n  delete <id>")
+	}
+
+	// Connect to MongoDB
+	uri := os.Getenv(mongodbEnv)
+	if uri == "" {
+		log.Fatal("MONGODB_URI environment variable not set")
+	}
+	connectToMongo(uri)
 	defer closeMongoDB()
-	results := ReadContentEntry()
-	UpdateContentEntry(results[0])
-	results = ReadContentEntry()
-	DeleteContentEntry(results[0])
+
+	// Figure out what was asked for
+	command := os.Args[1]
+	switch command {
+	case "add":
+		if len(os.Args) < 4 {
+			log.Fatal("Usage: cc add <site> <description>")
+		}
+		CreateContentEntry(os.Args[2], os.Args[3])
+	case "list":
+		ReadContentEntry()
+	case "update":
+		if len(os.Args) < 5 {
+			log.Fatal("Usage: cc update <site> <description> <id>")
+		}
+		id, err := bson.ObjectIDFromHex(os.Args[4])
+		if err != nil {
+			log.Fatal("Could not convert id argument from string to int")
+		}
+
+		website := Website{ID: id, Site: os.Args[2], Description: os.Args[3]}
+		UpdateContentEntry(website)
+	case "delete":
+		if len(os.Args) < 3 {
+			log.Fatal("Usage: cc delete <id>")
+		}
+		id, err := bson.ObjectIDFromHex(os.Args[2])
+		if err != nil {
+			log.Fatal("Could not convert id argument from string to int")
+		}
+
+		DeleteContentEntry(id)
+	default:
+		log.Fatal("Unknown command: ", command)
+	}
 }
 
-func CreateContentEntry() {
+func CreateContentEntry(site string, description string) {
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create a new entry in the db
-	db := mongoClient.Database("content_consolidation_db")
-	coll := db.Collection("websites")
-	doc := Website{Site: "https://google.com", Description: "A useful search engine"}
+	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
+	doc := Website{Site: site, Description: description, Date: bson.DateTime(time.Now().Unix())}
 
 	result, insertErr := coll.InsertOne(ctx, doc)
 	if insertErr != nil {
@@ -100,18 +145,18 @@ func UpdateContentEntry(website Website) {
 	fmt.Println("Updated ", result.ModifiedCount, " records.")
 }
 
-func DeleteContentEntry(website Website) {
+func DeleteContentEntry(id bson.ObjectID) {
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create a new entry in the db
 	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	filter := bson.M{"_id": website.ID}
+	filter := bson.M{"_id": id}
 
 	result, deleteError := coll.DeleteOne(ctx, filter)
 	if deleteError != nil {
-		log.Fatal("Could not update record ", website.ID, ": ", deleteError)
+		log.Fatal("Could not delete record ", id, ": ", deleteError)
 	}
 
 	fmt.Println("Deleted ", result.DeletedCount, " records.")
