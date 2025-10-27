@@ -27,7 +27,8 @@ func main() {
 	defer closeMongoDB()
 	results := ReadContentEntry()
 	UpdateContentEntry(results[0])
-	_ = ReadContentEntry()
+	results = ReadContentEntry()
+	DeleteContentEntry(results[0])
 }
 
 func CreateContentEntry() {
@@ -97,6 +98,23 @@ func UpdateContentEntry(website Website) {
 	}
 
 	fmt.Println("Updated ", result.ModifiedCount, " records.")
+}
+
+func DeleteContentEntry(website Website) {
+	// Create context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create a new entry in the db
+	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
+	filter := bson.M{"_id": website.ID}
+
+	result, deleteError := coll.DeleteOne(ctx, filter)
+	if deleteError != nil {
+		log.Fatal("Could not update record ", website.ID, ": ", deleteError)
+	}
+
+	fmt.Println("Deleted ", result.DeletedCount, " records.")
 }
 
 func connectToMongo(uri string) {
