@@ -17,7 +17,7 @@ const mongodbEnv = "MONGODB_URI"
 var mongoClient *mongo.Client
 
 type Website struct {
-	ID          bson.ObjectID `bson:"_id"`
+	ID          bson.ObjectID `bson:"_id,omitempty"`
 	Site        string
 	Description string
 	Date        bson.DateTime
