@@ -20,7 +20,8 @@ type Website struct {
 	ID          bson.ObjectID `bson:"_id,omitempty"`
 	Site        string
 	Description string
-	Date        bson.DateTime
+	CreatedAt   time.Time `bson:"createdAt"`
+	UpdatedAt   time.Time `bson:"updatedAt"`
 }
 
 // cc add "site" "description"
@@ -84,7 +85,7 @@ func CreateContentEntry(site string, description string) {
 
 	// Create a new entry in the db
 	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	doc := Website{Site: site, Description: description, Date: bson.DateTime(time.Now().Unix())}
+	doc := Website{Site: site, Description: description, CreatedAt: time.Now()}
 
 	result, insertErr := coll.InsertOne(ctx, doc)
 	if insertErr != nil {
@@ -115,8 +116,7 @@ func ReadContentEntry() []Website {
 
 	fmt.Println("Found the following records:")
 	for _, result := range results {
-		res, _ := bson.MarshalExtJSON(result, false, false)
-		fmt.Println(string(res))
+		fmt.Printf("%+v\n", result)
 	}
 
 	return results
@@ -128,13 +128,12 @@ func UpdateContentEntry(website Website) {
 	defer cancel()
 
 	// Create a new entry in the db
-	website.Site = "https://reddit.com"
-	website.Description = "A hive of scum and villainy"
 	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
 	filter := bson.M{"_id": website.ID}
 	update := bson.M{"$set": bson.M{
 		"site":        website.Site,
 		"description": website.Description,
+		"UpdatedAt":   time.Now(),
 	}}
 
 	result, updateErr := coll.UpdateOne(ctx, filter, update)
