@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -11,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+const mongodbEnv = "MONGODB_URI"
 
 type Website struct {
 	ID          bson.ObjectID `bson:"_id,omitempty"`
@@ -20,18 +21,22 @@ type Website struct {
 	UpdatedAt   time.Time `bson:"updatedAt"`
 }
 
-const mongodbEnv = "MONGODB_URI"
+type MongoError struct {
+	Message string
+}
 
-var mongoClient *mongo.Client
+var mongoClient *mongo.Client = nil
 
-func CreateContentEntry(site string, description string) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
+func (e *MongoError) Error() string {
+	return string(e.Message)
+}
+
+func CreateContentEntry(site string, description string) (string, *MongoError) {
+	err := connectToMongo()
+	if err != nil {
+		return "", err
 	}
-	connectToMongo(uri)
-	defer closeMongoDB() // Create context
+	defer disconnectFromMongo()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -42,20 +47,15 @@ func CreateContentEntry(site string, description string) {
 
 	result, insertErr := coll.InsertOne(ctx, doc)
 	if insertErr != nil {
-		log.Fatal("Could not insert record to collection: ", insertErr)
+		return "", &MongoError{"Could not create record: " + insertErr.Error()}
 	}
 
-	fmt.Println("Inserted document with _id: ", result.InsertedID)
+	return fmt.Sprintf("Created document with _id: %s", result.InsertedID), nil
 }
 
-func ReadContentEntry() []Website {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB() // Create context
+func ReadContentEntries() ([]Website, *MongoError) {
+	connectToMongo()
+	defer disconnectFromMongo()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -66,25 +66,20 @@ func ReadContentEntry() []Website {
 	// Read from the collection
 	cursor, err := coll.Find(ctx, bson.D{})
 	if err != nil {
-		log.Fatal("Could not read records from MongoDB: ", err)
+		return nil, &MongoError{fmt.Sprintf("Could not read records from MongoDB: %s", err)}
 	}
 
 	var results []Website
 	if err = cursor.All(ctx, &results); err != nil {
-		log.Fatal("Could not parse results from MongoDB: ", err)
+		return nil, &MongoError{fmt.Sprintf("Could not parse results from MongoDB: %s", err)}
 	}
 
-	return results
+	return results, nil
 }
 
-func UpdateContentEntry(website Website) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB()
+func UpdateContentEntry(website Website) (string, *MongoError) {
+	connectToMongo()
+	defer disconnectFromMongo()
 
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -101,20 +96,15 @@ func UpdateContentEntry(website Website) {
 
 	result, updateErr := coll.UpdateOne(ctx, filter, update)
 	if updateErr != nil {
-		log.Fatal("Could not update record ", website.ID, ": ", updateErr)
+		return "", &MongoError{fmt.Sprintf("Could not update record %s: %s", website.ID, updateErr)}
 	}
 
-	fmt.Println("Updated ", result.ModifiedCount, " records.")
+	return fmt.Sprintf("Updated %s records.", result.ModifiedCount), nil
 }
 
-func DeleteContentEntry(id bson.ObjectID) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB()
+func DeleteContentEntry(id bson.ObjectID) (string, *MongoError) {
+	connectToMongo()
+	defer disconnectFromMongo()
 
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -126,41 +116,41 @@ func DeleteContentEntry(id bson.ObjectID) {
 
 	result, deleteError := coll.DeleteOne(ctx, filter)
 	if deleteError != nil {
-		log.Fatal("Could not delete record ", id, ": ", deleteError)
+		return "", &MongoError{fmt.Sprintf("Could not delete record %s: %s", id, deleteError.Error())}
 	}
 
-	fmt.Println("Deleted ", result.DeletedCount, " records.")
+	return fmt.Sprint("Deleted %v records.", result.DeletedCount), nil
 }
 
-func connectToMongo(uri string) {
-	clientOptions := options.Client().ApplyURI(uri)
+func connectToMongo() (error *MongoError) {
+	clientOptions := options.Client().ApplyURI(os.Getenv(mongodbEnv))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
-		fmt.Println(uri)
-		log.Fatal("Failed to connect to MongoDB: ", err)
+		return &MongoError{"Failed to connect to MongoDB: " + err.Error()}
 	}
 
 	err = client.Ping(ctx, nil)
 	if err != nil {
-		log.Fatal("Failed to ping MongoDB: ", err)
+		return &MongoError{"Failed to ping MongoDB: " + err.Error()}
 	}
 
-	fmt.Println("Connected to MongoDB!")
 	mongoClient = client
+
+	return nil
 }
 
-func closeMongoDB() {
+func disconnectFromMongo() (error *MongoError) {
 	if mongoClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		err := mongoClient.Disconnect(ctx)
 		if err != nil {
-			log.Printf("Error disconnecting from MongoDB: %v", err)
-		} else {
-			fmt.Println("Disconnected from MongoDB.")
+			return &MongoError{"Error disconnecting from MongoDB: %v" + err.Error()}
 		}
 	}
+
+	return nil
 }
