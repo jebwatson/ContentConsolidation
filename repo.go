@@ -74,11 +74,6 @@ func ReadContentEntry() []Website {
 		log.Fatal("Could not parse results from MongoDB: ", err)
 	}
 
-	fmt.Println("Found the following records:")
-	for _, result := range results {
-		fmt.Printf("%+v\n", result)
-	}
-
 	return results
 }
 
