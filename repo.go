@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -12,114 +10,89 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-type Website struct {
+const (
+	mongodbEnv = "MONGODB_URI"
+	db         = "content_consolidation_db"
+	collection = "content"
+)
+
+type Content struct {
 	ID          bson.ObjectID `bson:"_id,omitempty"`
-	Site        string
+	Title       string
+	Location    string
 	Description string
-	CreatedAt   time.Time `bson:"createdAt"`
-	UpdatedAt   time.Time `bson:"updatedAt"`
+	LastUpdated time.Time `bson:"lastUpdated"`
 }
 
-const mongodbEnv = "MONGODB_URI"
+type Repo struct {
+	client *mongo.Client
+}
 
-var mongoClient *mongo.Client
+func (r *Repo) Init() error {
+	var err error
+	clientOptions := options.Client().ApplyURI(os.Getenv(mongodbEnv))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-func CreateContentEntry(site string, description string) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
+	r.client, err = mongo.Connect(clientOptions)
+	if err != nil {
+		return err
 	}
-	connectToMongo(uri)
-	defer closeMongoDB() // Create context
 
+	err = r.client.Ping(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Repo) SaveContentEntry(content Content) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create a new entry in the db
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	doc := Website{Site: site, Description: description, CreatedAt: time.Now()}
+	content.LastUpdated = time.Now()
 
-	result, insertErr := coll.InsertOne(ctx, doc)
-	if insertErr != nil {
-		log.Fatal("Could not insert record to collection: ", insertErr)
+	filter := bson.M{"lastUpdated": content.LastUpdated}
+	update := bson.M{"$set": content}
+
+	opts := options.UpdateOne().SetUpsert(true)
+
+	coll := r.client.Database(db).Collection(collection)
+	_, err := coll.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		return err
 	}
 
-	fmt.Println("Inserted document with _id: ", result.InsertedID)
+	return nil
 }
 
-func ReadContentEntry() []Website {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB() // Create context
-
+func (r *Repo) GetContent() ([]Content, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Set the collection
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
+	coll := r.client.Database(db).Collection(collection)
 
 	// Read from the collection
 	cursor, err := coll.Find(ctx, bson.D{})
 	if err != nil {
-		log.Fatal("Could not read records from MongoDB: ", err)
+		return nil, err
 	}
 
-	var results []Website
-	if err = cursor.All(ctx, &results); err != nil {
-		log.Fatal("Could not parse results from MongoDB: ", err)
+	var content []Content
+	if err = cursor.All(ctx, &content); err != nil {
+		return nil, err
 	}
 
-	fmt.Println("Found the following records:")
-	for _, result := range results {
-		fmt.Printf("%+v\n", result)
-	}
-
-	return results
+	return content, nil
 }
 
-func UpdateContentEntry(website Website) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB()
-
-	// Create context
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create a new entry in the db
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	filter := bson.M{"_id": website.ID}
-	update := bson.M{"$set": bson.M{
-		"site":        website.Site,
-		"description": website.Description,
-		"UpdatedAt":   time.Now(),
-	}}
-
-	result, updateErr := coll.UpdateOne(ctx, filter, update)
-	if updateErr != nil {
-		log.Fatal("Could not update record ", website.ID, ": ", updateErr)
-	}
-
-	fmt.Println("Updated ", result.ModifiedCount, " records.")
-}
-
-func DeleteContentEntry(id bson.ObjectID) {
-	// Connect to MongoDB
-	uri := os.Getenv(mongodbEnv)
-	if uri == "" {
-		log.Fatal("MONGODB_URI environment variable not set")
-	}
-	connectToMongo(uri)
-	defer closeMongoDB()
+/*
+func DeleteContentEntry(id bson.ObjectID) (string, *MongoError) {
+	connectToMongo()
+	defer disconnectFromMongo()
 
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -131,41 +104,42 @@ func DeleteContentEntry(id bson.ObjectID) {
 
 	result, deleteError := coll.DeleteOne(ctx, filter)
 	if deleteError != nil {
-		log.Fatal("Could not delete record ", id, ": ", deleteError)
+		return "", &MongoError{fmt.Sprintf("Could not delete record %s: %s", id, deleteError.Error())}
 	}
 
-	fmt.Println("Deleted ", result.DeletedCount, " records.")
+	return fmt.Sprint("Deleted %v records.", result.DeletedCount), nil
 }
 
-func connectToMongo(uri string) {
-	clientOptions := options.Client().ApplyURI(uri)
+func connectToMongo() (error *MongoError) {
+	clientOptions := options.Client().ApplyURI(os.Getenv(mongodbEnv))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
-		fmt.Println(uri)
-		log.Fatal("Failed to connect to MongoDB: ", err)
+		return &MongoError{"Failed to connect to MongoDB: " + err.Error()}
 	}
 
 	err = client.Ping(ctx, nil)
 	if err != nil {
-		log.Fatal("Failed to ping MongoDB: ", err)
+		return &MongoError{"Failed to ping MongoDB: " + err.Error()}
 	}
 
-	fmt.Println("Connected to MongoDB!")
 	mongoClient = client
+
+	return nil
 }
 
-func closeMongoDB() {
+func disconnectFromMongo() (error *MongoError) {
 	if mongoClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		err := mongoClient.Disconnect(ctx)
 		if err != nil {
-			log.Printf("Error disconnecting from MongoDB: %v", err)
-		} else {
-			fmt.Println("Disconnected from MongoDB.")
+			return &MongoError{"Error disconnecting from MongoDB: %v" + err.Error()}
 		}
 	}
+
+	return nil
 }
+*/
