@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -11,97 +10,85 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-const mongodbEnv = "MONGODB_URI"
+const (
+	mongodbEnv = "MONGODB_URI"
+	db         = "content_consolidation_db"
+	collection = "content"
+)
 
-type Website struct {
+type Content struct {
 	ID          bson.ObjectID `bson:"_id,omitempty"`
-	Site        string
+	Location    string
 	Description string
-	CreatedAt   time.Time `bson:"createdAt"`
 	UpdatedAt   time.Time `bson:"updatedAt"`
 }
 
-type MongoError struct {
-	Message string
+type Repo struct {
+	client *mongo.Client
 }
 
-var mongoClient *mongo.Client = nil
+func (r *Repo) Init() error {
+	var err error
+	clientOptions := options.Client().ApplyURI(os.Getenv(mongodbEnv))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-func (e *MongoError) Error() string {
-	return string(e.Message)
-}
-
-func CreateContentEntry(site string, description string) (string, *MongoError) {
-	err := connectToMongo()
+	r.client, err = mongo.Connect(clientOptions)
 	if err != nil {
-		return "", err
+		return err
 	}
-	defer disconnectFromMongo()
 
+	err = r.client.Ping(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Repo) SaveContentEntry(content Content) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create a new entry in the db
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	doc := Website{Site: site, Description: description, CreatedAt: time.Now()}
+	content.UpdatedAt = time.Now()
 
-	result, insertErr := coll.InsertOne(ctx, doc)
-	if insertErr != nil {
-		return "", &MongoError{"Could not create record: " + insertErr.Error()}
+	filter := bson.M{"location": content.Location}
+	update := bson.M{"$set": content}
+
+	opts := options.UpdateOne().SetUpsert(true)
+
+	coll := r.client.Database(db).Collection(collection)
+	_, err := coll.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		return err
 	}
 
-	return fmt.Sprintf("Created document with _id: %s", result.InsertedID), nil
+	return nil
 }
 
-func ReadContentEntries() ([]Website, *MongoError) {
-	connectToMongo()
-	defer disconnectFromMongo()
-
+func (r *Repo) GetContent() ([]Content, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Set the collection
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
+	coll := r.client.Database(db).Collection(collection)
 
 	// Read from the collection
 	cursor, err := coll.Find(ctx, bson.D{})
 	if err != nil {
-		return nil, &MongoError{fmt.Sprintf("Could not read records from MongoDB: %s", err)}
+		return nil, err
 	}
 
-	var results []Website
-	if err = cursor.All(ctx, &results); err != nil {
-		return nil, &MongoError{fmt.Sprintf("Could not parse results from MongoDB: %s", err)}
+	var content []Content
+	if err = cursor.All(ctx, &content); err != nil {
+		return nil, err
 	}
 
-	return results, nil
+	return content, nil
 }
 
-func UpdateContentEntry(website Website) (string, *MongoError) {
-	connectToMongo()
-	defer disconnectFromMongo()
-
-	// Create context
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create a new entry in the db
-	coll := mongoClient.Database("content_consolidation_db").Collection("websites")
-	filter := bson.M{"_id": website.ID}
-	update := bson.M{"$set": bson.M{
-		"site":        website.Site,
-		"description": website.Description,
-		"UpdatedAt":   time.Now(),
-	}}
-
-	result, updateErr := coll.UpdateOne(ctx, filter, update)
-	if updateErr != nil {
-		return "", &MongoError{fmt.Sprintf("Could not update record %s: %s", website.ID, updateErr)}
-	}
-
-	return fmt.Sprintf("Updated %s records.", result.ModifiedCount), nil
-}
-
+/*
 func DeleteContentEntry(id bson.ObjectID) (string, *MongoError) {
 	connectToMongo()
 	defer disconnectFromMongo()
@@ -154,3 +141,4 @@ func disconnectFromMongo() (error *MongoError) {
 
 	return nil
 }
+*/

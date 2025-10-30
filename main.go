@@ -1,85 +1,22 @@
 package main
 
 import (
-	"fmt"
-	"os"
+	"log"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss/list"
 )
 
-type model struct {
-	entries []Website
-	err     error
-}
-
-func updateEntries() tea.Msg {
-	entries, err := ReadContentEntries()
-	if err != nil {
-		return errMsg{err}
-	}
-
-	return entriesMsg(entries)
-}
-
-type entriesMsg []Website
-
-type errMsg struct{ err error }
-
-func (e errMsg) Error() string { return e.err.Error() }
-
-func (m model) Init() tea.Cmd {
-	return updateEntries
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-
-	case entriesMsg:
-		m.entries = []Website(msg)
-		return m, nil
-
-	case errMsg:
-		m.err = msg
-		return m, nil
-
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
-			return m, tea.Quit
-		}
-	}
-
-	return m, nil
-}
-
-func (m model) View() string {
-	if len(m.entries) <= 0 {
-		return ""
-	}
-
-	items := make([]string, len(m.entries))
-	for index, entry := range m.entries {
-		items[index] = entry.Site
-	}
-
-	l := list.New(items)
-	fmt.Println(l)
-	return ""
-}
-
 func main() {
-	if len(os.Getenv("DEBUG")) > 0 {
-		f, err := tea.LogToFile("debug.log", "debug")
-		if err != nil {
-			fmt.Println("fatal:", err)
-			os.Exit(1)
-		}
-		defer f.Close()
+	repo := &Repo{}
+	if err := repo.Init(); err != nil {
+		log.Fatalf("Unable to init repo: %v", err)
 	}
 
-	if _, err := tea.NewProgram(model{}).Run(); err != nil {
-		fmt.Printf("Uh oh, there was an error: %v\n", err)
-		os.Exit(1)
+	m := NewModel(repo)
+
+	p := tea.NewProgram(m)
+	if _, err := p.Run(); err != nil {
+		log.Fatalf("Unable to run tui: %v", err)
 	}
 }
 
