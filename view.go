@@ -16,13 +16,13 @@ func (m model) View() string {
 	s := appNameStyle.Render("Content Consolidation") + "\n\n"
 
 	if m.state == detailView {
-		s += "Content location:\n\n"
+		s += "Content title:\n\n"
 		s += m.textinput.View() + "\n\n"
 		s += faintStyle.Render("enter - save, esc - discard")
 	}
 
 	if m.state == editView {
-		s += "Content description:\n\n"
+		s += "Content location:\n\n"
 		s += m.textarea.View() + "\n\n"
 		s += faintStyle.Render("ctrl+s - save, esc - discard")
 	}
@@ -34,12 +34,12 @@ func (m model) View() string {
 				prefix = ">"
 			}
 
-			shortDescription := strings.ReplaceAll(c.Description, "\n", " ")
-			if len(shortDescription) > 30 {
-				shortDescription = shortDescription[:30]
+			shortLocation := strings.ReplaceAll(c.Location, "\n", " ")
+			if len(shortLocation) > 30 {
+				shortLocation = shortLocation[:30]
 			}
 
-			s += enumeratorStyle.Render(prefix) + c.Location + " | " + faintStyle.Render(shortDescription) + "\n\n"
+			s += enumeratorStyle.Render(prefix) + c.Title + " | " + faintStyle.Render(shortLocation) + "\n\n"
 		}
 
 		s += faintStyle.Render("n - new content, q - quit")

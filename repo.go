@@ -18,9 +18,10 @@ const (
 
 type Content struct {
 	ID          bson.ObjectID `bson:"_id,omitempty"`
+	Title       string
 	Location    string
 	Description string
-	UpdatedAt   time.Time `bson:"updatedAt"`
+	LastUpdated time.Time `bson:"lastUpdated"`
 }
 
 type Repo struct {
@@ -51,9 +52,9 @@ func (r *Repo) SaveContentEntry(content Content) error {
 	defer cancel()
 
 	// Create a new entry in the db
-	content.UpdatedAt = time.Now()
+	content.LastUpdated = time.Now()
 
-	filter := bson.M{"location": content.Location}
+	filter := bson.M{"lastUpdated": content.LastUpdated}
 	update := bson.M{"$set": content}
 
 	opts := options.UpdateOne().SetUpsert(true)

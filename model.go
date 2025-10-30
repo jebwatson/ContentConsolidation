@@ -79,7 +79,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "enter":
 				m.currentContent = m.content[m.listIndex]
-				m.textinput.SetValue(m.currentContent.Description)
+				m.textinput.SetValue(m.currentContent.Title)
 				m.textinput.Focus()
 				m.textinput.CursorEnd()
 				m.state = detailView
@@ -87,10 +87,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case detailView:
 			switch key {
 			case "enter":
-				location := m.textinput.Value()
-				if location != "" {
-					m.currentContent.Location = location
-					m.textarea.SetValue(m.currentContent.Description)
+				title := m.textinput.Value()
+				if title != "" {
+					m.currentContent.Title = title
+					m.textarea.SetValue(m.currentContent.Location)
 					m.textarea.Focus()
 					m.textarea.CursorEnd()
 					m.state = editView
@@ -101,8 +101,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case editView:
 			switch key {
 			case "ctrl+s":
-				description := m.textarea.Value()
-				m.currentContent.Description = description
+				location := m.textarea.Value()
+				m.currentContent.Location = location
 
 				var err error
 				if err = m.repo.SaveContentEntry(m.currentContent); err != nil {
